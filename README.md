@@ -142,66 +142,66 @@ The application is ready for deployment on:
 - **Google Cloud Run**: Deploy using Docker or buildpacks
 - **AWS Elastic Beanstalk**: Upload as a ZIP with all files
 
-## 🔧 Testing with curl
+## 🔧 Manual Testing Commands for Deployed Backend
 
-### Health Check
+### Test Health Check
 ```bash
-curl https://your-deployment-url.com/
+curl https://backend-api-jumi.onrender.com/
 # Expected: {"status": "AiFreeSet backend running"}
 ```
 
-### Image Upscaling
+### Test Image Processing Endpoints
+
+#### Upscale Image
 ```bash
 curl -X POST \
   -F "image=@path/to/your/image.jpg" \
-  https://your-deployment-url.com/api/upscale
+  https://backend-api-jumi.onrender.com/api/upscale
 ```
 
-### Image Unblurring
+#### Unblur Image
 ```bash
 curl -X POST \
   -F "image=@path/to/your/blurry-image.jpg" \
-  https://your-deployment-url.com/api/unblur
+  https://backend-api-jumi.onrender.com/api/unblur
 ```
 
-### Background Removal
+#### Remove Background
 ```bash
 curl -X POST \
   -F "image=@path/to/your/image.jpg" \
-  https://your-deployment-url.com/api/background-remove
+  https://backend-api-jumi.onrender.com/api/background-remove
 ```
 
-### Watermark Removal
+#### Remove Watermark
 ```bash
 curl -X POST \
   -F "image=@path/to/watermarked-image.jpg" \
-  https://your-deployment-url.com/api/watermark-remove
+  https://backend-api-jumi.onrender.com/api/watermark-remove
 ```
 
-### AI Art Generation
+#### Generate AI Art
 ```bash
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"prompt": "a beautiful sunset over mountains, digital art"}' \
-  https://your-deployment-url.com/api/ai-art
+  https://backend-api-jumi.onrender.com/api/ai-art
 ```
 
-### Local Testing Examples
-```bash
-# Health check
-curl http://localhost:5000/
+### Expected Success Response Format
+```json
+{
+  "success": true,
+  "output_url": "https://processed-image-url.com/image.png"
+}
+```
 
-# Image processing (replace with actual image path)
-curl -X POST -F "image=@test.jpg" http://localhost:5000/api/upscale
-curl -X POST -F "image=@test.jpg" http://localhost:5000/api/unblur
-curl -X POST -F "image=@test.jpg" http://localhost:5000/api/background-remove
-curl -X POST -F "image=@test.jpg" http://localhost:5000/api/watermark-remove
-
-# AI art generation
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "cyberpunk city at night"}' \
-  http://localhost:5000/api/ai-art
+### Expected Error Response Format
+```json
+{
+  "success": false,
+  "error": "Descriptive error message"
+}
 ```
 
 ## 📁 Project Structure

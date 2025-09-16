@@ -36,6 +36,18 @@ def validate_file_size(file_stream):
     file_stream.seek(0)  # Seek back to beginning
     return size <= MAX_FILE_SIZE
 
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def validate_file_size(file_stream):
+    """Check if file size is within limits"""
+    file_stream.seek(0, 2)  # Seek to end
+    size = file_stream.tell()
+    file_stream.seek(0)  # Seek back to beginning
+    return size <= MAX_FILE_SIZE
+
 def validate_image_upload(request):
     """Validate uploaded image file"""
     if 'image' not in request.files:
@@ -212,9 +224,17 @@ def remove_watermark():
 @app.route('/api/ai-art', methods=['POST'])
 def generate_ai_art():
     """Generate AI art using Qwen 3 API"""
+    app.logger.info("=== AI ART GENERATION REQUEST STARTED ===")
+    
     try:
+        # Validate API key
+        if not QWEN_API_KEY:
+            app.logger.error("Qwen API key not found")
+            return jsonify({'success': False, 'error': 'API key not configured'}), 500
+        
         data = request.get_json()
         if not data or 'prompt' not in data:
+            app.logger.warning("No prompt provided in request")
             return jsonify({
                 'success': False,
                 'error': 'Prompt is required'
@@ -222,50 +242,77 @@ def generate_ai_art():
         
         prompt = data['prompt'].strip()
         if not prompt:
+            app.logger.warning("Empty prompt provided")
             return jsonify({
                 'success': False,
                 'error': 'Prompt cannot be empty'
             }), 400
         
-        # Prepare the request to Qwen API
+        app.logger.info(f"Generating AI art with prompt: {prompt[:100]}...")
+        
+        # Try OpenAI-compatible endpoint
         headers = {
             'Authorization': f'Bearer {QWEN_API_KEY}',
             'Content-Type': 'application/json'
         }
         
         payload = {
-            'model': 'qwen-turbo',
+            'model': 'dall-e-3',
             'prompt': prompt,
             'size': '1024x1024',
             'n': 1
         }
         
-        # Make request to Qwen AI image generation endpoint
+        app.logger.info("Making request to OpenAI API...")
+        
+        # Make request with timeout
         response = requests.post(
             'https://api.openai.com/v1/images/generations',
             headers=headers,
-            json=payload
+            json=payload,
+            timeout=120  # 2 minute timeout for image generation
         )
+        
+        app.logger.info(f"OpenAI API response status: {response.status_code}")
         
         if response.status_code == 200:
             result = response.json()
+            app.logger.info(f"OpenAI API success. Response keys: {list(result.keys())}")
+            
             if 'data' in result and len(result['data']) > 0:
+                output_url = result['data'][0]['url']
                 return jsonify({
                     'success': True,
-                    'output_url': result['data'][0]['url']
+                    'output_url': output_url
                 })
             else:
+                app.logger.error(f"No image data in response: {result}")
                 return jsonify({
                     'success': False,
                     'error': 'No image generated'
                 }), 500
         else:
+            error_text = response.text
+            app.logger.error(f"OpenAI API error {response.status_code}: {error_text}")
             return jsonify({
                 'success': False,
-                'error': f'Qwen API error: {response.status_code}'
+                'error': f'AI API error: {response.status_code} - {error_text}'
             }), 500
             
+    except requests.exceptions.Timeout:
+        app.logger.error("Request timeout to AI API")
+        return jsonify({
+            'success': False,
+            'error': 'Request timeout - AI generation took too long'
+        }), 500
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Request exception: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Network error: {str(e)}'
+        }), 500
     except Exception as e:
+        app.logger.error(f"Unexpected error in AI art generation: {str(e)}")
         return jsonify({
             'success': False,
             'error': f'API request failed: {str(e)}'
