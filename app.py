@@ -1,5 +1,4 @@
 import os
-import os
 import json
 import requests
 import logging
@@ -166,6 +165,112 @@ def create_dummy_response(endpoint_type, message="API temporarily unavailable, u
         })
     }
 
+def make_api_request_with_fallback(api_function, endpoint_type, *args, **kwargs):
+    """Wrapper to make API requests with automatic fallback to dummy responses"""
+    try:
+        return api_function(*args, **kwargs)
+    except Exception as e:
+        app.logger.error(f"API call failed for {endpoint_type}: {str(e)}")
+        app.logger.info(f"Returning dummy fallback response for {endpoint_type}")
+        return create_dummy_response(endpoint_type)
+
+def make_image_api_request(api_url, files, headers, timeout=90, max_attempts=3):
+    """Generic helper function for image processing API calls with retry logic"""
+    session = create_retry_session()
+    
+    for attempt in range(max_attempts):
+        try:
+            app.logger.info(f"API request attempt {attempt + 1}/{max_attempts} to {api_url}")
+            
+            response = session.post(
+                api_url,
+                files=files,
+                headers=headers,
+                timeout=timeout
+            )
+            
+            app.logger.info(f"API response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    # Try multiple URL field names
+                    output_url = (
+                        result.get('output_url') or 
+                        result.get('result_url') or 
+                        result.get('url') or 
+                        result.get('image_url') or
+                        result.get('processed_url') or
+                        result.get('processed_image')
+                    )
+                    
+                    if output_url:
+                        return {'success': True, 'processed_image': output_url, 'source': 'api'}
+                    else:
+                        raise Exception('No output URL found in API response')
+                        
+                except json.JSONDecodeError:
+                    # Handle binary image data
+                    if response.headers.get('content-type', '').startswith('image/'):
+                        try:
+                            image_data = base64.b64encode(response.content).decode('utf-8')
+                            content_type = response.headers.get('content-type', 'image/png')
+                            image_data_url = f"data:{content_type};base64,{image_data}"
+                            return {'success': True, 'image_data': image_data_url, 'source': 'api'}
+                        except Exception as base64_error:
+                            app.logger.error(f"Failed to encode binary response: {base64_error}")
+                    
+                    raise Exception('Invalid response format from API')
+            
+            elif response.status_code in [429, 500, 502, 503, 504]:
+                if attempt < max_attempts - 1:
+                    wait_time = (2 ** attempt) + 1
+                    app.logger.warning(f"API error {response.status_code}, retrying in {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise Exception(f"API failed after retries: HTTP {response.status_code}")
+            else:
+                raise Exception(f"API error: HTTP {response.status_code} - {response.text[:200]}")
+                
+        except requests.exceptions.Timeout as e:
+            if attempt < max_attempts - 1:
+                wait_time = (2 ** attempt) + 2
+                app.logger.warning(f"Timeout (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise Exception(f"Timeout after {max_attempts} attempts: {str(e)}")
+                
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_attempts - 1:
+                wait_time = (2 ** attempt) + 2
+                app.logger.warning(f"Connection error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise Exception(f"Connection error after {max_attempts} attempts: {str(e)}")
+                
+        except requests.exceptions.RequestException as e:
+            if attempt < max_attempts - 1:
+                wait_time = (2 ** attempt) + 2
+                app.logger.warning(f"Request error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise Exception(f"Request error after {max_attempts} attempts: {str(e)}")
+                
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                wait_time = (2 ** attempt) + 2
+                app.logger.warning(f"Unexpected error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise Exception(f"Unexpected error after {max_attempts} attempts: {str(e)}")
+    
+    raise Exception("All retry attempts exhausted")
+
 @app.route('/', methods=['GET'])
 def health_check():
     """Health check endpoint with API status"""
@@ -179,360 +284,160 @@ def health_check():
         }
     })
 
-@app.route('/api/upscale', methods=['POST'])
-def upscale_image():
-    """Upscale image using Pixelcut API with detailed logging"""
-    app.logger.info("=== UPSCALE REQUEST STARTED ===")
-    
-    try:
-        if not PIXELCUT_API_KEY:
-            app.logger.error("Pixelcut API key not configured")
-            return jsonify({'success': False, 'error': 'API key not configured'}), 500
-        
-        file, error = validate_image_upload(request)
-        if error:
-            return jsonify(error), 400
-        
-        file.seek(0)
-        file_content = file.read()
-        filename = secure_filename(file.filename)
-        
-        app.logger.info(f"Processing upscale for: {filename}")
-        
-        files = {'image': (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')}
-        headers = {'Authorization': f'Bearer {PIXELCUT_API_KEY}'}
-        
-        response = requests.post(
-            'https://api.pixelcut.ai/v1/upscale',
-            files=files,
-            headers=headers,
-            data={'scale': '2'},
-            timeout=60
-        )
-        
-        app.logger.info(f"Pixelcut upscale response: {response.status_code}")
-        
-        if response.status_code == 200:
-            result = response.json()
-            output_url = result.get('output_url') or result.get('result_url') or result.get('url')
-            if output_url:
-                return jsonify({'success': True, 'output_url': output_url})
-            else:
-                return jsonify({'success': False, 'error': 'No output URL received'}), 500
-        else:
-            app.logger.error(f"Pixelcut API error: {response.status_code} - {response.text}")
-            return jsonify({'success': False, 'error': f'Upscale failed: HTTP {response.status_code}'}), 500
-            
-    except requests.exceptions.Timeout:
-        return jsonify({'success': False, 'error': 'Request timeout'}), 500
-    except Exception as e:
-        app.logger.error(f"Upscale error: {str(e)}")
-        return jsonify({'success': False, 'error': f'API request failed: {str(e)}'}), 500
-
-@app.route('/api/unblur', methods=['POST'])
-def unblur_image():
-    """Enhance/sharpen image using Pixelcut API with detailed logging"""
-    app.logger.info("=== UNBLUR REQUEST STARTED ===")
-    
-    try:
-        if not PIXELCUT_API_KEY:
-            app.logger.error("Pixelcut API key not configured")
-            return jsonify({'success': False, 'error': 'API key not configured'}), 500
-        
-        file, error = validate_image_upload(request)
-        if error:
-            return jsonify(error), 400
-        
-        file.seek(0)
-        file_content = file.read()
-        filename = secure_filename(file.filename)
-        
-        app.logger.info(f"Processing unblur for: {filename}")
-        
-        files = {'image': (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')}
-        headers = {'Authorization': f'Bearer {PIXELCUT_API_KEY}'}
-        
-        response = requests.post(
-            'https://api.pixelcut.ai/v1/enhance',
-            files=files,
-            headers=headers,
-            timeout=60
-        )
-        
-        app.logger.info(f"Pixelcut unblur response: {response.status_code}")
-        
-        if response.status_code == 200:
-            result = response.json()
-            output_url = result.get('output_url') or result.get('result_url') or result.get('url')
-            if output_url:
-                return jsonify({'success': True, 'output_url': output_url})
-            else:
-                return jsonify({'success': False, 'error': 'No output URL received'}), 500
-        else:
-            app.logger.error(f"Pixelcut API error: {response.status_code} - {response.text}")
-            return jsonify({'success': False, 'error': f'Unblur failed: HTTP {response.status_code}'}), 500
-            
-    except requests.exceptions.Timeout:
-        return jsonify({'success': False, 'error': 'Request timeout'}), 500
-    except Exception as e:
-        app.logger.error(f"Unblur error: {str(e)}")
-        # Return dummy response as final fallback
-        dummy_response = create_dummy_response('unblur', 'Image enhancement service temporarily unavailable')
-        return jsonify(dummy_response)
-
 @app.route('/api/background-remove', methods=['POST'])
 def remove_background():
-    """Remove background using Pixelcut API with retry logic and improved error handling"""
+    """Remove background using Pixelcut API with graceful fallback"""
     app.logger.info("=== BACKGROUND REMOVE REQUEST STARTED ===")
     
     try:
-        # Validate API key first
-        if not PIXELCUT_API_KEY:
-            app.logger.error("Pixelcut API key not configured")
-            return jsonify({
-                'success': False, 
-                'error': 'Background removal service is temporarily unavailable'
-            }), 500
-        
-        # Validate file upload
+        # Validate file upload first
         file, error = validate_image_upload(request)
         if error:
-            app.logger.error(f"File validation failed: {error}")
             return jsonify(error), 400
         
-        # Read file content into memory
-        file.seek(0)
-        file_content = file.read()
         filename = secure_filename(file.filename)
-        
         app.logger.info(f"Processing background removal for: {filename}")
-        app.logger.info(f"File content loaded: {len(file_content)} bytes")
         
-        # Prepare multipart form data
-        files = {
-            'image': (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-        }
-        
-        headers = {
-            'Authorization': f'Bearer {PIXELCUT_API_KEY}',
-            'User-Agent': 'AiFreeSet-Backend/1.0'
-        }
-        
-        # Use the correct Pixelcut API endpoint for background removal
-        api_url = 'https://api.pixelcut.ai/v1/background/remove'
-        app.logger.info(f"Making request to Pixelcut API: {api_url}")
-        app.logger.info(f"Using API key: {PIXELCUT_API_KEY[:10]}...{PIXELCUT_API_KEY[-4:]}")
-        
-        # Create session with retry logic
-        session = create_retry_session()
-        
-        # Make request to Pixelcut API with retry logic
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                app.logger.info(f"Attempt {attempt + 1}/{max_attempts} to Pixelcut API")
-                
-                response = session.post(
-                    api_url,
-                    files=files,
-                    headers=headers,
-                    timeout=90  # Increased timeout for background removal
-                )
-                
-                app.logger.info(f"Pixelcut API response - Status: {response.status_code}")
-                app.logger.info(f"Response headers: {dict(response.headers)}")
-                
-                if response.status_code == 200:
-                    try:
-                        result = response.json()
-                        app.logger.info(f"Pixelcut API success. Response keys: {list(result.keys())}")
-                        
-                        # Handle different response formats from Pixelcut API
-                        processed_image_url = None
-                        image_data = None
-                        
-                        # Try to extract URL first (most common response)
-                        processed_image_url = (
-                            result.get('output_url') or 
-                            result.get('result_url') or 
-                            result.get('url') or 
-                            result.get('image_url') or
-                            result.get('processed_url')
-                        )
-                        
-                        # If no URL, check for base64 image data
-                        if not processed_image_url:
-                            raw_image_data = (
-                                result.get('image_data') or
-                                result.get('base64_image') or
-                                result.get('data')
-                            )
-                            
-                            if raw_image_data:
-                                # Ensure proper base64 encoding
-                                if isinstance(raw_image_data, bytes):
-                                    image_data = base64.b64encode(raw_image_data).decode('utf-8')
-                                elif isinstance(raw_image_data, str):
-                                    # Check if it's already base64 encoded
-                                    if raw_image_data.startswith('data:image/'):
-                                        image_data = raw_image_data
-                                    else:
-                                        image_data = f"data:image/png;base64,{raw_image_data}"
-                        
-                        # Return success response with either URL or base64 data
-                        if processed_image_url:
-                            app.logger.info(f"Background removal successful. Output URL: {processed_image_url[:50]}...")
-                            return jsonify({
-                                'success': True,
-                                'processed_image': processed_image_url
-                            })
-                        elif image_data:
-                            app.logger.info("Background removal successful. Returning base64 image data")
-                            return jsonify({
-                                'success': True,
-                                'image_data': image_data
-                            })
-                        else:
-                            app.logger.error(f"No usable image data found in response: {result}")
-                            return jsonify({
-                                'success': False,
-                                'error': 'Background removal completed but no image data received'
-                            }), 500
-                            
-                    except json.JSONDecodeError as e:
-                        app.logger.error(f"Failed to parse JSON response: {e}")
-                        app.logger.error(f"Raw response: {response.text[:500]}")
-                        
-                        # If JSON parsing fails, check if response is binary image data
-                        if response.headers.get('content-type', '').startswith('image/'):
-                            try:
-                                image_data = base64.b64encode(response.content).decode('utf-8')
-                                content_type = response.headers.get('content-type', 'image/png')
-                                image_data_url = f"data:{content_type};base64,{image_data}"
-                                
-                                app.logger.info("Received binary image data, converted to base64")
-                                return jsonify({
-                                    'success': True,
-                                    'image_data': image_data_url
-                                })
-                            except Exception as base64_error:
-                                app.logger.error(f"Failed to encode binary response to base64: {base64_error}")
-                        
-                        return jsonify({
-                            'success': False,
-                            'error': 'Invalid response format from background removal service'
-                        }), 500
-                        
-                elif response.status_code == 401:
-                    app.logger.error(f"Pixelcut API authentication failed - Status: {response.status_code}")
-                    app.logger.error(f"Response: {response.text}")
-                    return jsonify({
-                        'success': False,
-                        'error': 'Background removal service authentication failed'
-                    }), 500
-                    
-                elif response.status_code == 429:
-                    app.logger.warning(f"Pixelcut API rate limit hit - Status: {response.status_code}")
-                    if attempt < max_attempts - 1:
-                        wait_time = (2 ** attempt) + 1  # Exponential backoff
-                        app.logger.info(f"Rate limited, waiting {wait_time} seconds before retry...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        return jsonify({
-                            'success': False,
-                            'error': 'Background removal service is busy. Please try again later.'
-                        }), 429
-                        
-                else:
-                    error_text = response.text[:200]  # Limit error text length
-                    app.logger.error(f"Pixelcut API error - Status: {response.status_code}, Response: {error_text}")
-                    
-                    if attempt < max_attempts - 1:
-                        wait_time = (2 ** attempt) + 1  # Exponential backoff
-                        app.logger.info(f"API error, waiting {wait_time} seconds before retry...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        return jsonify({
-                            'success': False,
-                            'error': 'Pixelcut API unavailable. Please try again later.'
-                        }), 500
-                
-                # If we get here, the request was successful, break the retry loop
-                break
-                
-            except requests.exceptions.Timeout as e:
-                app.logger.error(f"Timeout error (attempt {attempt + 1}): {str(e)}")
-                if attempt < max_attempts - 1:
-                    wait_time = (2 ** attempt) + 2
-                    app.logger.info(f"Timeout, waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                    # Reset file pointer for retry
-                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                    continue
-                else:
-                    app.logger.warning("All retry attempts exhausted due to timeouts, using dummy response")
-                    dummy_response = create_dummy_response('background-remove', 'Background removal service timeout. Please try again later.')
-                    return jsonify(dummy_response)
-                    
-            except requests.exceptions.ConnectionError as e:
-                app.logger.error(f"Connection error (attempt {attempt + 1}): {str(e)}")
-                if attempt < max_attempts - 1:
-                    wait_time = (2 ** attempt) + 2
-                    app.logger.info(f"Connection error, waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                    # Reset file pointer for retry
-                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                    continue
-                else:
-                    app.logger.warning("All retry attempts exhausted due to connection errors, using dummy response")
-                    dummy_response = create_dummy_response('background-remove', 'Pixelcut API unavailable. Please try again later.')
-                    return jsonify(dummy_response)
-                    
-            except requests.exceptions.RequestException as e:
-                app.logger.error(f"Request exception (attempt {attempt + 1}): {str(e)}")
-                if attempt < max_attempts - 1:
-                    wait_time = (2 ** attempt) + 1
-                    app.logger.info(f"Request error, waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                    # Reset file pointer for retry
-                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                    continue
-                else:
-                    app.logger.warning("All retry attempts exhausted due to request errors, using dummy response")
-                    dummy_response = create_dummy_response('background-remove', 'Pixelcut API unavailable. Please try again later.')
-                    return jsonify(dummy_response)
+        # Attempt real API call with fallback
+        def _make_background_remove_request():
+            if not PIXELCUT_API_KEY:
+                app.logger.error("Pixelcut API key not configured")
+                raise Exception("API key not configured")
             
-            except Exception as e:
-                app.logger.error(f"Unexpected error (attempt {attempt + 1}): {str(e)}")
-                if attempt < max_attempts - 1:
-                    wait_time = (2 ** attempt) + 1
-                    app.logger.info(f"Unexpected error, waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                    # Reset file pointer for retry
-                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                    continue
-                else:
-                    app.logger.warning("All retry attempts exhausted due to unexpected errors, using dummy response")
-                    dummy_response = create_dummy_response('background-remove', 'Background removal service temporarily unavailable')
-                    return jsonify(dummy_response)
+            file.seek(0)
+            file_content = file.read()
             
-            finally:
-                # Reset file pointer for potential retry
-                if 'files' in locals():
-                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
+            files = {'image': (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')}
+            headers = {
+                'Authorization': f'Bearer {PIXELCUT_API_KEY}',
+                'User-Agent': 'AiFreeSet-Backend/1.0'
+            }
+            
+            return make_image_api_request(
+                'https://api.pixelcut.ai/v1/background/remove',
+                files,
+                headers,
+                timeout=90
+            )
         
-        # If we've exhausted all retries without success
-        app.logger.warning("All retry attempts exhausted for background removal, using dummy response")
-        dummy_response = create_dummy_response('background-remove', 'Pixelcut API unavailable after multiple attempts')
-        return jsonify(dummy_response)
-            
+        # Make request with automatic fallback
+        result = make_api_request_with_fallback(_make_background_remove_request, 'background-remove')
+        return jsonify(result)
+        
     except Exception as e:
-        app.logger.error(f"Unexpected error in background removal: {str(e)}")
-        app.logger.exception("Full traceback:")
+        app.logger.error(f"Unexpected error in background removal endpoint: {str(e)}")
         # Return dummy response as final fallback
         dummy_response = create_dummy_response('background-remove', 'Background removal service temporarily unavailable')
+        return jsonify(dummy_response)
+
+@app.route('/api/upscale', methods=['POST'])
+def upscale_image():
+    """Upscale image using Pixelcut API with graceful fallback"""
+    app.logger.info("=== UPSCALE REQUEST STARTED ===")
+    
+    try:
+        # Validate file upload first
+        file, error = validate_image_upload(request)
+        if error:
+            return jsonify(error), 400
+        
+        filename = secure_filename(file.filename)
+        app.logger.info(f"Processing upscale for: {filename}")
+        
+        # Attempt real API call with fallback
+        def _make_upscale_request():
+            if not PIXELCUT_API_KEY:
+                app.logger.error("Pixelcut API key not configured")
+                raise Exception("API key not configured")
+            
+            file.seek(0)
+            file_content = file.read()
+            
+            files = {'image': (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')}
+            headers = {
+                'Authorization': f'Bearer {PIXELCUT_API_KEY}',
+                'User-Agent': 'AiFreeSet-Backend/1.0'
+            }
+            
+            # Add scale parameter for upscaling
+            session = create_retry_session()
+            response = session.post(
+                'https://api.pixelcut.ai/v1/upscale',
+                files=files,
+                headers=headers,
+                data={'scale': '2'},
+                timeout=90
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                output_url = (
+                    result.get('output_url') or 
+                    result.get('result_url') or 
+                    result.get('url') or
+                    result.get('processed_image')
+                )
+                if output_url:
+                    return {'success': True, 'processed_image': output_url, 'source': 'pixelcut'}
+                else:
+                    raise Exception('No output URL received from Pixelcut')
+            else:
+                raise Exception(f"Pixelcut API error: HTTP {response.status_code}")
+        
+        # Make request with automatic fallback
+        result = make_api_request_with_fallback(_make_upscale_request, 'upscale')
+        return jsonify(result)
+        
+    except Exception as e:
+        app.logger.error(f"Unexpected error in upscale endpoint: {str(e)}")
+        # Return dummy response as final fallback
+        dummy_response = create_dummy_response('upscale', 'Image upscale service temporarily unavailable')
+        return jsonify(dummy_response)
+
+@app.route('/api/unblur', methods=['POST'])
+def unblur_image():
+    """Enhance/sharpen image using Pixelcut API with graceful fallback"""
+    app.logger.info("=== UNBLUR REQUEST STARTED ===")
+    
+    try:
+        # Validate file upload first
+        file, error = validate_image_upload(request)
+        if error:
+            return jsonify(error), 400
+        
+        filename = secure_filename(file.filename)
+        app.logger.info(f"Processing unblur for: {filename}")
+        
+        # Attempt real API call with fallback
+        def _make_unblur_request():
+            if not PIXELCUT_API_KEY:
+                app.logger.error("Pixelcut API key not configured")
+                raise Exception("API key not configured")
+            
+            file.seek(0)
+            file_content = file.read()
+            
+            files = {'image': (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')}
+            headers = {
+                'Authorization': f'Bearer {PIXELCUT_API_KEY}',
+                'User-Agent': 'AiFreeSet-Backend/1.0'
+            }
+            
+            return make_image_api_request(
+                'https://api.pixelcut.ai/v1/enhance',
+                files,
+                headers,
+                timeout=90
+            )
+        
+        # Make request with automatic fallback
+        result = make_api_request_with_fallback(_make_unblur_request, 'unblur')
+        return jsonify(result)
+        
+    except Exception as e:
+        app.logger.error(f"Unexpected error in unblur endpoint: {str(e)}")
+        # Return dummy response as final fallback
+        dummy_response = create_dummy_response('unblur', 'Image enhancement service temporarily unavailable')
         return jsonify(dummy_response)
 
 @app.route('/api/watermark-remove', methods=['POST'])
@@ -550,7 +455,7 @@ def remove_watermark():
         app.logger.info(f"Processing watermark removal for: {filename}")
         
         # Attempt real API call with fallback
-        def _make_unwatermark_request():
+        def _make_watermark_remove_request():
             if not UNWATERMARK_API_KEY:
                 app.logger.error("Unwatermark API key not configured")
                 raise Exception("API key not configured")
@@ -564,92 +469,15 @@ def remove_watermark():
                 'User-Agent': 'AiFreeSet-Backend/1.0'
             }
             
-            session = create_retry_session()
-            
-            # Retry logic with exponential backoff
-            max_attempts = 3
-            for attempt in range(max_attempts):
-                try:
-                    app.logger.info(f"Watermark removal attempt {attempt + 1}/{max_attempts}")
-                    
-                    response = session.post(
-                        'https://api.unwatermark.ai/v1/remove',
-                        files=files,
-                        headers=headers,
-                        timeout=120  # Longer timeout for watermark removal
-                    )
-                    
-                    app.logger.info(f"Unwatermark API response: {response.status_code}")
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        output_url = (
-                            result.get('output_url') or 
-                            result.get('result_url') or 
-                            result.get('url') or
-                            result.get('processed_image')
-                        )
-                        if output_url:
-                            return {'success': True, 'processed_image': output_url, 'source': 'unwatermark'}
-                        else:
-                            raise Exception('No output URL received from Unwatermark.ai')
-                    
-                    elif response.status_code in [429, 500, 502, 503, 504]:
-                        if attempt < max_attempts - 1:
-                            wait_time = (2 ** attempt) + 1
-                            app.logger.warning(f"Unwatermark API error {response.status_code}, retrying in {wait_time}s")
-                            time.sleep(wait_time)
-                            files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                            continue
-                        else:
-                            raise Exception(f"Unwatermark API failed: HTTP {response.status_code}")
-                    else:
-                        raise Exception(f"Unwatermark API error: HTTP {response.status_code} - {response.text[:200]}")
-                        
-                except requests.exceptions.Timeout as e:
-                    if attempt < max_attempts - 1:
-                        wait_time = (2 ** attempt) + 2
-                        app.logger.warning(f"Network timeout (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
-                        time.sleep(wait_time)
-                        files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                        continue
-                    else:
-                        raise Exception(f"Timeout error after {max_attempts} attempts: {str(e)}")
-                        
-                except requests.exceptions.ConnectionError as e:
-                    if attempt < max_attempts - 1:
-                        wait_time = (2 ** attempt) + 2
-                        app.logger.warning(f"Connection error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
-                        time.sleep(wait_time)
-                        files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                        continue
-                    else:
-                        raise Exception(f"Connection error after {max_attempts} attempts: {str(e)}")
-                        
-                except requests.exceptions.RequestException as e:
-                    if attempt < max_attempts - 1:
-                        wait_time = (2 ** attempt) + 2
-                        app.logger.warning(f"Request error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
-                        time.sleep(wait_time)
-                        files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                        continue
-                    else:
-                        raise Exception(f"Request error after {max_attempts} attempts: {str(e)}")
-                        
-                except Exception as e:
-                    if attempt < max_attempts - 1:
-                        wait_time = (2 ** attempt) + 2
-                        app.logger.warning(f"Unexpected error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
-                        time.sleep(wait_time)
-                        files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
-                        continue
-                    else:
-                        raise Exception(f"Unexpected error after {max_attempts} attempts: {str(e)}")
-            
-            raise Exception("All retry attempts exhausted")
+            return make_image_api_request(
+                'https://api.unwatermark.ai/v1/remove',
+                files,
+                headers,
+                timeout=120  # Longer timeout for watermark removal
+            )
         
         # Make request with automatic fallback
-        result = make_api_request_with_fallback(_make_unwatermark_request, 'watermark-remove')
+        result = make_api_request_with_fallback(_make_watermark_remove_request, 'watermark-remove')
         return jsonify(result)
         
     except Exception as e:
@@ -678,7 +506,7 @@ def generate_ai_art():
         app.logger.info(f"Generating AI art with prompt: {prompt[:100]}...")
         
         # Attempt real API call with fallback
-        def _make_qwen_art_request():
+        def _make_ai_art_request():
             if not QWEN_API_KEY:
                 app.logger.error("Qwen API key not configured")
                 raise Exception("API key not configured")
@@ -775,15 +603,11 @@ def generate_ai_art():
                         continue
                     else:
                         raise Exception(f"Unexpected error after {max_attempts} attempts: {str(e)}")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        raise Exception(f"Network error after {max_attempts} attempts: {str(e)}")
             
             raise Exception("All retry attempts exhausted")
         
         # Make request with automatic fallback
-        result = make_api_request_with_fallback(_make_qwen_art_request, 'ai-art')
+        result = make_api_request_with_fallback(_make_ai_art_request, 'ai-art')
         return jsonify(result)
         
     except Exception as e:
