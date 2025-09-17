@@ -468,25 +468,27 @@ def remove_background():
                     wait_time = (2 ** attempt) + 2
                     app.logger.info(f"Timeout, waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
+                    # Reset file pointer for retry
+                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
                     continue
                 else:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Background removal service timeout. Please try again later.'
-                    }), 500
+                    app.logger.warning("All retry attempts exhausted due to timeouts, using dummy response")
+                    dummy_response = create_dummy_response('background-remove', 'Background removal service timeout. Please try again later.')
+                    return jsonify(dummy_response)
                     
-            except (requests.exceptions.ConnectionError, requests.exceptions.DNSError) as e:
-                app.logger.error(f"Connection/DNS error (attempt {attempt + 1}): {str(e)}")
+            except requests.exceptions.ConnectionError as e:
+                app.logger.error(f"Connection error (attempt {attempt + 1}): {str(e)}")
                 if attempt < max_attempts - 1:
                     wait_time = (2 ** attempt) + 2
                     app.logger.info(f"Connection error, waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
+                    # Reset file pointer for retry
+                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
                     continue
                 else:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Pixelcut API unavailable. Please try again later.'
-                    }), 500
+                    app.logger.warning("All retry attempts exhausted due to connection errors, using dummy response")
+                    dummy_response = create_dummy_response('background-remove', 'Pixelcut API unavailable. Please try again later.')
+                    return jsonify(dummy_response)
                     
             except requests.exceptions.RequestException as e:
                 app.logger.error(f"Request exception (attempt {attempt + 1}): {str(e)}")
@@ -494,12 +496,27 @@ def remove_background():
                     wait_time = (2 ** attempt) + 1
                     app.logger.info(f"Request error, waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
+                    # Reset file pointer for retry
+                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
                     continue
                 else:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Pixelcut API unavailable. Please try again later.'
-                    }), 500
+                    app.logger.warning("All retry attempts exhausted due to request errors, using dummy response")
+                    dummy_response = create_dummy_response('background-remove', 'Pixelcut API unavailable. Please try again later.')
+                    return jsonify(dummy_response)
+            
+            except Exception as e:
+                app.logger.error(f"Unexpected error (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_attempts - 1:
+                    wait_time = (2 ** attempt) + 1
+                    app.logger.info(f"Unexpected error, waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                    # Reset file pointer for retry
+                    files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
+                    continue
+                else:
+                    app.logger.warning("All retry attempts exhausted due to unexpected errors, using dummy response")
+                    dummy_response = create_dummy_response('background-remove', 'Background removal service temporarily unavailable')
+                    return jsonify(dummy_response)
             
             finally:
                 # Reset file pointer for potential retry
@@ -589,17 +606,45 @@ def remove_watermark():
                     else:
                         raise Exception(f"Unwatermark API error: HTTP {response.status_code} - {response.text[:200]}")
                         
-                except (requests.exceptions.Timeout, 
-                        requests.exceptions.ConnectionError, 
-                        requests.exceptions.DNSError) as e:
+                except requests.exceptions.Timeout as e:
                     if attempt < max_attempts - 1:
                         wait_time = (2 ** attempt) + 2
-                        app.logger.warning(f"Network error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        app.logger.warning(f"Network timeout (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
                         time.sleep(wait_time)
                         files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
                         continue
                     else:
-                        raise Exception(f"Network error after {max_attempts} attempts: {str(e)}")
+                        raise Exception(f"Timeout error after {max_attempts} attempts: {str(e)}")
+                        
+                except requests.exceptions.ConnectionError as e:
+                    if attempt < max_attempts - 1:
+                        wait_time = (2 ** attempt) + 2
+                        app.logger.warning(f"Connection error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
+                        continue
+                    else:
+                        raise Exception(f"Connection error after {max_attempts} attempts: {str(e)}")
+                        
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_attempts - 1:
+                        wait_time = (2 ** attempt) + 2
+                        app.logger.warning(f"Request error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
+                        continue
+                    else:
+                        raise Exception(f"Request error after {max_attempts} attempts: {str(e)}")
+                        
+                except Exception as e:
+                    if attempt < max_attempts - 1:
+                        wait_time = (2 ** attempt) + 2
+                        app.logger.warning(f"Unexpected error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        files['image'] = (filename, io.BytesIO(file_content), file.content_type or 'image/jpeg')
+                        continue
+                    else:
+                        raise Exception(f"Unexpected error after {max_attempts} attempts: {str(e)}")
             
             raise Exception("All retry attempts exhausted")
         
@@ -695,12 +740,41 @@ def generate_ai_art():
                     else:
                         raise Exception(f"OpenAI API error: HTTP {response.status_code} - {response.text[:200]}")
                         
-                except (requests.exceptions.Timeout, 
-                        requests.exceptions.ConnectionError, 
-                        requests.exceptions.DNSError) as e:
+                except requests.exceptions.Timeout as e:
                     if attempt < max_attempts - 1:
                         wait_time = (2 ** attempt) + 2
-                        app.logger.warning(f"Network error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        app.logger.warning(f"Timeout error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        raise Exception(f"Timeout error after {max_attempts} attempts: {str(e)}")
+                        
+                except requests.exceptions.ConnectionError as e:
+                    if attempt < max_attempts - 1:
+                        wait_time = (2 ** attempt) + 2
+                        app.logger.warning(f"Connection error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        raise Exception(f"Connection error after {max_attempts} attempts: {str(e)}")
+                        
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_attempts - 1:
+                        wait_time = (2 ** attempt) + 2
+                        app.logger.warning(f"Request error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        raise Exception(f"Request error after {max_attempts} attempts: {str(e)}")
+                        
+                except Exception as e:
+                    if attempt < max_attempts - 1:
+                        wait_time = (2 ** attempt) + 2
+                        app.logger.warning(f"Unexpected error (attempt {attempt + 1}): {str(e)}, retrying in {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        raise Exception(f"Unexpected error after {max_attempts} attempts: {str(e)}")
                         time.sleep(wait_time)
                         continue
                     else:
