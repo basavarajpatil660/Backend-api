@@ -43,14 +43,14 @@ const upload = multer({
 });
 
 // API Keys from environment variables
-const QWEN_API_KEY = process.env.QWEN_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const REMOVEBG_API_KEY = process.env.REMOVEBG_API_KEY;
 const UNWATERMARK_API_KEY = process.env.UNWATERMARK_API_KEY;
 
 // Logging configuration
 const logApiKeyStatus = () => {
   console.log('=== API KEYS STATUS ===');
-  console.log(`Qwen API Key: ${QWEN_API_KEY ? '✓ Loaded' : '✗ Missing'}`);
+  console.log(`OpenRouter API Key: ${OPENROUTER_API_KEY ? '✓ Loaded' : '✗ Missing'}`);
   console.log(`Remove.bg API Key: ${REMOVEBG_API_KEY ? '✓ Loaded' : '✗ Missing'}`);
   console.log(`Unwatermark API Key: ${UNWATERMARK_API_KEY ? '✓ Loaded' : '✗ Missing'}`);
   console.log('=========================');
@@ -133,15 +133,7 @@ const createDummyResponse = (type) => {
       source: 'dummy',
       data: {
         text: 'This is a dummy response. The AI text generation service is temporarily unavailable.',
-        model: 'qwen-turbo'
-      }
-    },
-    image: {
-      success: true,
-      source: 'dummy',
-      data: {
-        image_url: 'https://via.placeholder.com/1024x1024.png?text=AI+Generated+Art+Placeholder',
-        prompt: 'Dummy response placeholder'
+        model: 'qwen/qwq-32b:free'
       }
     },
     'background-remove': {
@@ -173,14 +165,14 @@ app.get('/', (req, res) => {
     status: 'AiFreeSet Node.js backend running',
     timestamp: new Date().toISOString(),
     api_keys_loaded: {
-      qwen: !!QWEN_API_KEY,
+      openrouter: !!OPENROUTER_API_KEY,
       removebg: !!REMOVEBG_API_KEY,
       unwatermark: !!UNWATERMARK_API_KEY
     }
   });
 });
 
-// Text generation endpoint using Qwen 3
+// Text generation endpoint using OpenRouter with Qwen
 app.post('/api/text', async (req, res) => {
   console.log('=== TEXT GENERATION REQUEST STARTED ===');
   
@@ -194,18 +186,21 @@ app.post('/api/text', async (req, res) => {
       });
     }
 
-    if (!QWEN_API_KEY) {
-      console.error('Qwen API key not configured');
-      return res.json(createDummyResponse('text'));
+    if (!OPENROUTER_API_KEY) {
+      console.error('OpenRouter API key not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'OpenRouter API key not configured'
+      });
     }
 
     const apiCall = async () => {
       const axiosInstance = createAxiosWithRetry(120000);
       
       const response = await axiosInstance.post(
-        'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        'https://openrouter.ai/api/v1/chat/completions',
         {
-          model: 'qwen-turbo',
+          model: 'qwen/qwq-32b:free',
           messages: [
             {
               role: 'user',
@@ -213,39 +208,44 @@ app.post('/api/text', async (req, res) => {
             }
           ],
           max_tokens: parseInt(max_tokens),
-          temperature: parseFloat(temperature),
-          stream: false
+          temperature: parseFloat(temperature)
         },
         {
           headers: {
-            'Authorization': `Bearer ${QWEN_API_KEY}`,
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
             'Content-Type': 'application/json',
             'User-Agent': 'AiFreeSet-Backend/2.0'
           }
         }
       );
 
+      console.log('OpenRouter API response status:', response.status);
+      console.log('OpenRouter API response data:', JSON.stringify(response.data, null, 2));
+
       if (response.status === 200 && response.data) {
         const result = response.data;
         
         if (result.choices && result.choices.length > 0) {
-          const text = result.choices[0].message?.content || result.choices[0].text;
+          const choice = result.choices[0];
+          const text = choice.message?.content;
           
           if (text) {
             return {
               success: true,
               data: {
                 text: text.trim(),
-                model: result.model || 'qwen-turbo',
+                model: result.model || 'qwen/qwq-32b:free',
                 usage: result.usage
               }
             };
           }
         }
         
-        throw new Error('No text content found in Qwen response');
+        console.error('No text content found in OpenRouter response:', result);
+        throw new Error('No text content found in OpenRouter response');
       } else {
-        throw new Error(`Qwen API error: HTTP ${response.status}`);
+        console.error(`OpenRouter API error: HTTP ${response.status}`, response.data);
+        throw new Error(`OpenRouter API error: HTTP ${response.status}`);
       }
     };
 
@@ -254,98 +254,13 @@ app.post('/api/text', async (req, res) => {
 
   } catch (error) {
     console.error('Text generation error:', error.message);
-    res.json(createDummyResponse('text'));
-  }
-});
-
-// Image generation endpoint using Qwen 3
-app.post('/api/image', async (req, res) => {
-  console.log('=== IMAGE GENERATION REQUEST STARTED ===');
-  
-  try {
-    const { prompt, size = '1024*1024', style = '<auto>' } = req.body;
+    console.error('Full error details:', error.response?.data || error);
     
-    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Prompt is required and must be a non-empty string'
-      });
-    }
-
-    if (!QWEN_API_KEY) {
-      console.error('Qwen API key not configured');
-      return res.json(createDummyResponse('image'));
-    }
-
-    const apiCall = async () => {
-      const axiosInstance = createAxiosWithRetry(180000); // 3 minutes for image generation
-      
-      const response = await axiosInstance.post(
-        'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/generation',
-        {
-          model: 'wanx-v1',
-          input: {
-            prompt: prompt.trim()
-          },
-          parameters: {
-            style: style,
-            size: size,
-            n: 1
-          }
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${QWEN_API_KEY}`,
-            'Content-Type': 'application/json',
-            'User-Agent': 'AiFreeSet-Backend/2.0'
-          }
-        }
-      );
-
-      if (response.status === 200 && response.data) {
-        const result = response.data;
-        
-        if (result.output && result.output.results && result.output.results.length > 0) {
-          const imageResult = result.output.results[0];
-          const imageUrl = imageResult.url;
-          
-          if (imageUrl) {
-            return {
-              success: true,
-              data: {
-                image_url: imageUrl,
-                prompt: prompt.trim(),
-                size: size,
-                style: style
-              }
-            };
-          } else if (imageResult.image) {
-            // Handle base64 response
-            const imageDataUrl = `data:image/png;base64,${imageResult.image}`;
-            return {
-              success: true,
-              data: {
-                image_url: imageDataUrl,
-                prompt: prompt.trim(),
-                size: size,
-                style: style
-              }
-            };
-          }
-        }
-        
-        throw new Error('No image URL found in Qwen response');
-      } else {
-        throw new Error(`Qwen API error: HTTP ${response.status}`);
-      }
-    };
-
-    const result = await makeApiRequestWithRetry(apiCall);
-    res.json(result);
-
-  } catch (error) {
-    console.error('Image generation error:', error.message);
-    res.json(createDummyResponse('image'));
+    // Return 500 status for API failures as requested
+    res.status(500).json({
+      success: false,
+      error: 'Text generation service temporarily unavailable'
+    });
   }
 });
 
