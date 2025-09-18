@@ -488,7 +488,7 @@ def remove_watermark():
 
 @app.route('/api/ai-art', methods=['POST'])
 def generate_ai_art():
-    """Generate AI art using Qwen 3 API with graceful fallback"""
+    """Generate AI art using Qwen API with graceful fallback"""
     app.logger.info("=== AI ART GENERATION REQUEST STARTED ===")
     
     try:
@@ -506,7 +506,7 @@ def generate_ai_art():
         app.logger.info(f"Generating AI art with prompt: {prompt[:100]}...")
         
         # Attempt real API call with fallback
-        def _make_ai_art_request():
+        def _make_qwen_art_request():
             if not QWEN_API_KEY:
                 app.logger.error("Qwen API key not configured")
                 raise Exception("API key not configured")
@@ -517,11 +517,17 @@ def generate_ai_art():
                 'User-Agent': 'AiFreeSet-Backend/1.0'
             }
             
+            # Qwen API payload structure
             payload = {
-                'model': 'dall-e-3',
-                'prompt': prompt,
-                'size': '1024x1024',
-                'n': 1
+                'model': 'wanx-v1',
+                'input': {
+                    'prompt': prompt
+                },
+                'parameters': {
+                    'style': '<auto>',
+                    'size': '1024*1024',
+                    'n': 1
+                }
             }
             
             session = create_retry_session()
@@ -533,40 +539,75 @@ def generate_ai_art():
                     app.logger.info(f"AI art generation attempt {attempt + 1}/{max_attempts}")
                     
                     response = session.post(
-                        'https://api.openai.com/v1/images/generations',
+                        'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/generation',
                         headers=headers,
                         json=payload,
                         timeout=120
                     )
                     
-                    app.logger.info(f"OpenAI API response: {response.status_code}")
+                    app.logger.info(f"Qwen API response: {response.status_code}")
                     
                     if response.status_code == 200:
                         result = response.json()
-                        if 'data' in result and len(result['data']) > 0:
-                            output_url = result['data'][0]['url']
-                            return {
-                                'success': True, 
-                                'processed_image': output_url,
-                                'source': 'qwen',
-                                'data': {
-                                    'text': f'AI-generated art for prompt: {prompt[:50]}...',
-                                    'result': 'AI art generation successful'
-                                }
-                            }
+                        app.logger.info(f"Qwen API success. Response keys: {list(result.keys()) if result else 'None'}")
+                        
+                        # Handle Qwen response format
+                        if 'output' in result and 'results' in result['output']:
+                            results = result['output']['results']
+                            if results and len(results) > 0:
+                                # Try to get image URL or base64 data
+                                image_result = results[0]
+                                output_url = image_result.get('url')
+                                
+                                if output_url:
+                                    return {
+                                        'success': True,
+                                        'source': 'qwen',
+                                        'data': {
+                                            'processed_image': output_url,
+                                            'text': f'AI-generated art for prompt: {prompt[:50]}...',
+                                            'result': 'AI art generation successful'
+                                        }
+                                    }
+                                else:
+                                    # Check for base64 image data
+                                    base64_data = image_result.get('image')
+                                    if base64_data:
+                                        # Format as data URI
+                                        image_data_url = f"data:image/png;base64,{base64_data}"
+                                        return {
+                                            'success': True,
+                                            'source': 'qwen',
+                                            'data': {
+                                                'processed_image': image_data_url,
+                                                'text': f'AI-generated art for prompt: {prompt[:50]}...',
+                                                'result': 'AI art generation successful'
+                                            }
+                                        }
+                                    else:
+                                        raise Exception('No image URL or base64 data found in Qwen response')
+                            else:
+                                raise Exception('No results found in Qwen response')
                         else:
-                            raise Exception('No image data in OpenAI response')
+                            raise Exception('Invalid response format from Qwen API')
+                    
+                    elif response.status_code == 401:
+                        app.logger.error(f"Qwen API authentication failed - Status: {response.status_code}")
+                        app.logger.error(f"Response: {response.text}")
+                        raise Exception("Qwen API authentication failed - check API key")
                     
                     elif response.status_code in [429, 500, 502, 503, 504]:
                         if attempt < max_attempts - 1:
                             wait_time = (2 ** attempt) + 1
-                            app.logger.warning(f"OpenAI API error {response.status_code}, retrying in {wait_time}s")
+                            app.logger.warning(f"Qwen API error {response.status_code}, retrying in {wait_time}s")
                             time.sleep(wait_time)
                             continue
                         else:
-                            raise Exception(f"OpenAI API failed: HTTP {response.status_code}")
+                            raise Exception(f"Qwen API failed: HTTP {response.status_code}")
                     else:
-                        raise Exception(f"OpenAI API error: HTTP {response.status_code} - {response.text[:200]}")
+                        error_text = response.text[:200] if response.text else 'No response text'
+                        app.logger.error(f"Qwen API error: HTTP {response.status_code} - {error_text}")
+                        raise Exception(f"Qwen API error: HTTP {response.status_code}")
                         
                 except requests.exceptions.Timeout as e:
                     if attempt < max_attempts - 1:
@@ -607,7 +648,7 @@ def generate_ai_art():
             raise Exception("All retry attempts exhausted")
         
         # Make request with automatic fallback
-        result = make_api_request_with_fallback(_make_ai_art_request, 'ai-art')
+        result = make_api_request_with_fallback(_make_qwen_art_request, 'ai-art')
         return jsonify(result)
         
     except Exception as e:
