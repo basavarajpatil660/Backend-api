@@ -8,24 +8,23 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('🔍 RAILWAY DEPLOYMENT VERIFICATION');
-console.log('===================================\\n');
+console.log('🔍 DEPLOYMENT VERIFICATION');
+console.log('==========================\\n');
 
 let errors = 0;
 let warnings = 0;
 
-// Check 1: Procfile exists and has correct content
+// Check 1: Procfile (optional for Render, required for Railway)
 try {
   const procfileContent = fs.readFileSync('Procfile', 'utf8').trim();
   if (procfileContent === 'web: node server.js') {
-    console.log('✅ Procfile: Correct Node.js configuration');
+    console.log('✅ Procfile: Correct Node.js configuration (Railway compatible)');
   } else {
-    console.error('❌ Procfile: Wrong content -', procfileContent);
-    errors++;
+    console.warn('⚠️  Procfile: Unexpected content -', procfileContent);
+    warnings++;
   }
 } catch (error) {
-  console.error('❌ Procfile: Missing or unreadable');
-  errors++;
+  console.log('ℹ️  Procfile: Not found (OK for Render, required for Railway)');
 }
 
 // Check 2: package.json has start script
@@ -118,12 +117,13 @@ console.log('\\n📊 VERIFICATION SUMMARY');
 console.log('========================');
 
 if (errors === 0) {
-  console.log('🎉 SUCCESS: Project is ready for Railway deployment!');
-  console.log('📋 Next steps:');
-  console.log('   1. Commit and push to GitHub');
-  console.log('   2. Connect repository to Railway');
-  console.log('   3. Set environment variables in Railway dashboard');
-  console.log('   4. Deploy!');
+  console.log('🎉 SUCCESS: Project is ready for cloud deployment!');
+  console.log('📋 Deployment options:');
+  console.log('   Render: Auto-detects Node.js, no Procfile needed');
+  console.log('   Railway: Requires Procfile with "web: node server.js"');
+  console.log('   📋 Next steps:');
+  console.log('   1. Set environment variables in platform dashboard');
+  console.log('   2. Connect repository and deploy');
 } else {
   console.error(`💥 FAILED: ${errors} error(s) must be fixed before deployment`);
   process.exit(1);

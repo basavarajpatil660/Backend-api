@@ -162,13 +162,22 @@ const createDummyResponse = (type) => {
 app.get('/', (req, res) => {
   console.log('Health check requested');
   res.json({
-    status: 'AiFreeSet Node.js backend running',
+    status: 'AiFreeSet Node.js backend running on Render',
+    server_url: 'https://backend-api-jumi.onrender.com',
     timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT,
     api_keys_loaded: {
       openrouter: !!OPENROUTER_API_KEY,
       removebg: !!REMOVEBG_API_KEY,
       unwatermark: !!UNWATERMARK_API_KEY
-    }
+    },
+    endpoints: [
+      'GET /',
+      'POST /api/text',
+      'POST /api/background-remove',
+      'POST /api/watermark-remove'
+    ]
   });
 });
 
@@ -460,9 +469,24 @@ app.use('*', (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 AiFreeSet Express backend running on port ${PORT}`);
+  console.log(`🚀 AiFreeSet Express backend running on Render`);
+  console.log(`🌐 Server URL: https://backend-api-jumi.onrender.com`);
+  console.log(`📡 Port: ${PORT}`);
+  console.log(`🏗️ Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📅 Started at: ${new Date().toISOString()}`);
+  console.log(`💻 Node version: ${process.version}`);
   logApiKeyStatus();
+  
+  // Additional Render-specific logging
+  console.log('\n=== RENDER DEPLOYMENT INFO ===');
+  console.log('Platform: Render Cloud');
+  console.log('Runtime: Node.js');
+  console.log('Available endpoints:');
+  console.log('  - GET /');
+  console.log('  - POST /api/text');
+  console.log('  - POST /api/background-remove');
+  console.log('  - POST /api/watermark-remove');
+  console.log('================================\n');
 });
 
 module.exports = app;
