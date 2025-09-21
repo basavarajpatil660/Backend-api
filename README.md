@@ -1,317 +1,265 @@
-# AiFreeSet Backend API
+# AI Free Set - Fullstack Chat Application
 
-A Flask-based backend API for the AiFreeSet website, providing AI-powered image processing services.
+A complete fullstack application that connects to OpenRouter's Qwen 3 model, featuring a Node.js Express backend and a modern HTML/CSS/JS frontend.
 
 ## 🚀 Features
 
-### API Integrations
-- **Pixelcut API**: Image upscaling (2x), unblurring/enhancement, and background removal
-- **Unwatermark.ai**: Watermark removal from images
-- **Qwen 3 AI**: AI art generation from text prompts
-
-### Security & Validation
-- File type validation (JPG, PNG, WEBP, HEIC only)
-- 10MB file size limit
-- CORS configured for https://aifreeset.netlify.app only
-- Environment-based API key management
-- Comprehensive error handling with consistent JSON responses
-
-## 📋 API Endpoints
-
-### Health Check
-#### `GET /`
-Health check endpoint
-- **Output**: `{"status": "AiFreeSet backend running"}`
-
-### Image Processing Endpoints
-
-#### `POST /api/upscale`
-Upscale images using Pixelcut API (2x upscale by default)
-- **Input**: Form data with `image` file
-- **Output**: `{"success": true, "output_url": "https://..."}`
-
-#### `POST /api/unblur`
-Enhance/sharpen blurry images using Pixelcut API
-- **Input**: Form data with `image` file
-- **Output**: `{"success": true, "output_url": "https://..."}`
-
-#### `POST /api/background-remove`
-Remove background from images using Pixelcut API
-- **Input**: Form data with `image` file
-- **Output**: `{"success": true, "output_url": "https://..."}`
-
-#### `POST /api/watermark-remove`
-Remove watermarks from images using Unwatermark.ai
-- **Input**: Form data with `image` file
-- **Output**: `{"success": true, "output_url": "https://..."}`
-
-#### `POST /api/ai-art`
-Generate AI art from text prompts using Qwen 3
-- **Input**: JSON `{"prompt": "your text prompt"}`
-- **Output**: `{"success": true, "output_url": "https://..."}`
-
-## 🛠️ Installation & Setup
-
-### Prerequisites
-- Python 3.8+
-- pip (Python package manager)
-
-### Local Development
-
-1. **Navigate to the project directory:**
-   ```bash
-   cd "e:\web dev backend"
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Set up environment variables (optional):**
-   ```bash
-   # Copy the example environment file
-   copy .env.example .env
-   
-   # Edit .env with your actual API keys if different from defaults
-   ```
-
-4. **Run the application:**
-   ```bash
-   python app.py
-   ```
-
-   The API will be available at `http://localhost:5000`
-
-### Environment Variables
-
-The application uses the following environment variables with fallback defaults:
-
-```env
-PIXELCUT_API_KEY=sk_2d205bd00cad484db6ce55ef0f936db2
-UNWATERMARK_API_KEY=7RNirCJcUpnFlQu1n-WfPFZoeaxtFQm1VWj5evrPgsg
-QWEN_API_KEY=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
-PORT=5000
-```
-
-## 🚀 Deployment
-
-### Heroku Deployment
-
-1. **Install Heroku CLI** and login:
-   ```bash
-   heroku login
-   ```
-
-2. **Create a new Heroku app:**
-   ```bash
-   heroku create aifreeset-backend
-   ```
-
-3. **Set environment variables on Heroku:**
-   ```bash
-   heroku config:set PIXELCUT_API_KEY=sk_2d205bd00cad484db6ce55ef0f936db2
-   heroku config:set UNWATERMARK_API_KEY=7RNirCJcUpnFlQu1n-WfPFZoeaxtFQm1VWj5evrPgsg
-   heroku config:set QWEN_API_KEY=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
-   ```
-
-4. **Deploy:**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial AiFreeSet backend deployment"
-   git push heroku main
-   ```
-
-### Render Deployment
-
-1. **Connect your repository** to Render
-2. **Create a new Web Service** with the following settings:
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn app:app`
-3. **Add environment variables** in the Render dashboard:
-   - `PIXELCUT_API_KEY`: sk_2d205bd00cad484db6ce55ef0f936db2
-   - `UNWATERMARK_API_KEY`: 7RNirCJcUpnFlQu1n-WfPFZoeaxtFQm1VWj5evrPgsg
-   - `QWEN_API_KEY`: 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
-
-### Other Platforms
-
-The application is ready for deployment on:
-- **Railway**: Use the Procfile for automatic deployment
-- **DigitalOcean App Platform**: Configure with the provided requirements.txt
-- **Google Cloud Run**: Deploy using Docker or buildpacks
-- **AWS Elastic Beanstalk**: Upload as a ZIP with all files
-
-## 🔧 Manual Testing Commands for Deployed Backend
-
-### Test Health Check
-```bash
-curl https://backend-api-jumi.onrender.com/
-# Expected: {"status": "AiFreeSet backend running"}
-```
-
-### Test Image Processing Endpoints
-
-#### Upscale Image
-```bash
-curl -X POST \
-  -F "image=@path/to/your/image.jpg" \
-  https://backend-api-jumi.onrender.com/api/upscale
-```
-
-#### Unblur Image
-```bash
-curl -X POST \
-  -F "image=@path/to/your/blurry-image.jpg" \
-  https://backend-api-jumi.onrender.com/api/unblur
-```
-
-#### Remove Background
-```bash
-curl -X POST \
-  -F "image=@path/to/your/image.jpg" \
-  https://backend-api-jumi.onrender.com/api/background-remove
-```
-
-#### Remove Watermark
-```bash
-curl -X POST \
-  -F "image=@path/to/watermarked-image.jpg" \
-  https://backend-api-jumi.onrender.com/api/watermark-remove
-```
-
-#### Generate AI Art
-```bash
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "a beautiful sunset over mountains, digital art"}' \
-  https://backend-api-jumi.onrender.com/api/ai-art
-```
-
-### Expected Success Response Format
-```json
-{
-  "success": true,
-  "output_url": "https://processed-image-url.com/image.png"
-}
-```
-
-### Expected Error Response Format
-```json
-{
-  "success": false,
-  "error": "Descriptive error message"
-}
-```
+- **Backend**: Node.js + Express with OpenRouter API integration
+- **Frontend**: Modern, responsive chat UI with real-time messaging
+- **AI Model**: Qwen 3-32B via OpenRouter
+- **Deployment Ready**: Backend for Railway/Render, Frontend for Netlify
+- **Mobile Friendly**: Responsive design for all devices
+- **Error Handling**: Comprehensive error handling and user feedback
 
 ## 📁 Project Structure
 
 ```
-e:\web dev backend\
-├── app.py              # Main Flask application with all API endpoints
-├── requirements.txt    # Python dependencies (flask, flask-cors, requests, gunicorn)
-├── Procfile           # Deployment configuration (web: gunicorn app:app)
-├── .env.example       # Environment variables template with API keys
-├── .gitignore         # Git ignore file
-└── README.md          # This documentation
+ai-free-set/
+├── backend/
+│   ├── server.js          # Express server with OpenRouter integration
+│   ├── package.json       # Backend dependencies
+│   ├── .env              # Environment variables (API key)
+│   ├── .env.example      # Environment template
+│   └── .gitignore        # Git ignore file
+│
+├── frontend/
+│   ├── index.html        # Main HTML file
+│   ├── style.css         # Responsive CSS styles
+│   └── script.js         # Frontend JavaScript logic
+│
+└── README.md             # This file
 ```
+
+## 🛠️ Backend Setup
+
+### 1. Install Dependencies
+
+```bash
+npm install
+```
+
+### 2. Environment Configuration
+
+The `.env` file is already configured with the provided API key:
+
+```env
+OPENROUTER_API_KEY=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
+PORT=5000
+```
+
+### 3. Start the Backend Server
+
+```bash
+# Development mode (auto-restart)
+npm run dev
+
+# Production mode
+npm start
+```
+
+Server will run on `http://localhost:5000`
+
+### 4. Test Backend API
+
+```bash
+# Health check
+curl http://localhost:5000/
+
+# Chat endpoint
+curl -X POST http://localhost:5000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello, Qwen 3!"}'
+```
+
+## 🎨 Frontend Setup
+
+### Local Development
+
+1. **Update API URL** in `frontend/script.js`:
+   ```javascript
+   const CONFIG = {
+       API_BASE_URL: 'http://localhost:5000', // For local development
+       // API_BASE_URL: 'https://your-backend-url.com', // For production
+   };
+   ```
+
+2. **Serve the frontend** using any static server:
+   ```bash
+   # Using Python
+   cd frontend
+   python -m http.server 3000
+   
+   # Using Node.js http-server
+   npx http-server frontend -p 3000
+   
+   # Using Live Server (VS Code extension)
+   # Right-click index.html → "Open with Live Server"
+   ```
+
+3. **Open in browser**: `http://localhost:3000`
+
+## 🚀 Deployment
+
+### Backend Deployment (Railway)
+
+1. **Connect Repository**:
+   - Go to [Railway](https://railway.app)
+   - Connect your GitHub repository
+   - Select the backend folder as root
+
+2. **Set Environment Variables**:
+   ```
+   OPENROUTER_API_KEY=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
+   PORT=5000
+   ```
+
+3. **Deploy**: Railway will automatically detect and deploy your Node.js app
+
+### Backend Deployment (Render)
+
+1. **Create Web Service**:
+   - Go to [Render](https://render.com)
+   - Connect your GitHub repository
+   - Choose "Web Service"
+
+2. **Configuration**:
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+   - **Environment Variables**: Add `OPENROUTER_API_KEY`
+
+3. **Deploy**: Render will build and deploy your backend
+
+### Frontend Deployment (Netlify)
+
+1. **Update API URL** in `frontend/script.js`:
+   ```javascript
+   const CONFIG = {
+       API_BASE_URL: 'https://your-backend-url.railway.app', // Your deployed backend URL
+   };
+   ```
+
+2. **Deploy to Netlify**:
+   - Go to [Netlify](https://netlify.com)
+   - Drag and drop the `frontend` folder to Netlify
+   - Or connect your GitHub repository and set publish directory to `frontend`
+
+3. **Custom Domain** (Optional):
+   - Set up `aifreeset.netlify.app` or your custom domain
+   - Update CORS settings in backend if needed
+
+## 📡 API Documentation
+
+### Endpoints
+
+#### Health Check
+- **GET** `/`
+- **Response**: Server status and information
+
+#### Chat Completion
+- **POST** `/api/chat`
+- **Headers**: `Content-Type: application/json`
+- **Request Body**:
+  ```json
+  {
+    "message": "Your question here"
+  }
+  ```
+- **Success Response**:
+  ```json
+  {
+    "success": true,
+    "response": "AI generated response",
+    "model": "qwen/qwen3-32b",
+    "timestamp": "2024-01-01T12:00:00.000Z"
+  }
+  ```
+- **Error Response**:
+  ```json
+  {
+    "error": "Error description",
+    "details": "Additional context (optional)"
+  }
+  ```
 
 ## 🔧 Configuration
 
 ### CORS Settings
-CORS is configured to accept requests **only** from:
-- `https://aifreeset.netlify.app` (your production frontend)
 
-### File Upload Limits
-- **Maximum file size**: 10MB (enforced at Flask level)
-- **Allowed formats**: JPG, JPEG, PNG, WEBP, HEIC only
+The backend is configured to accept requests from:
+- `https://aifreeset.netlify.app`
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
+- `http://localhost:5500`
 
-### API Keys
-All API keys are loaded from environment variables with the provided keys as fallbacks:
-- **Pixelcut API**: `PIXELCUT_API_KEY`
-- **Unwatermark.ai**: `UNWATERMARK_API_KEY` 
-- **Qwen 3 AI**: `QWEN_API_KEY`
+### OpenRouter Settings
 
-## 🛡️ Security Features
+- **Model**: `qwen/qwen3-32b`
+- **API Endpoint**: `https://openrouter.ai/api/v1/chat/completions`
+- **Headers**:
+  - `Authorization`: Bearer token with provided API key
+  - `HTTP-Referer`: `https://aifreeset.netlify.app`
+  - `X-Title`: `AI Free Set`
 
-- **Input validation** for all file uploads
-- **File type and size restrictions** enforced
-- **Environment-based API key management**
-- **CORS protection** (only your frontend allowed)
-- **Comprehensive error handling** with try/catch blocks
-- **Consistent JSON responses** for all endpoints
+## 🎯 Features
 
-## 📝 API Response Format
+### Backend Features
+- ✅ Express.js server with ES modules
+- ✅ OpenRouter API integration
+- ✅ Environment-based configuration
+- ✅ CORS enabled for specific origins
+- ✅ Comprehensive error handling
+- ✅ Request timeout handling (30s)
+- ✅ Input validation
+- ✅ JSON-only responses
 
-### Success Response
-```json
-{
-  "success": true,
-  "output_url": "https://processed-image-url.com/image.png"
-}
-```
+### Frontend Features
+- ✅ Modern, responsive chat interface
+- ✅ Real-time message display
+- ✅ Typing indicator with animation
+- ✅ Character count (2000 limit)
+- ✅ Mobile-friendly design
+- ✅ Error handling and user feedback
+- ✅ Keyboard shortcuts (Enter to send)
+- ✅ Auto-scroll to latest messages
+- ✅ Message history preservation
 
-### Error Response
-```json
-{
-  "success": false,
-  "error": "Descriptive error message"
-}
-```
-
-### Health Check Response
-```json
-{
-  "status": "AiFreeSet backend running"
-}
-```
-
-## 🚨 Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **Import/Dependency errors**: 
-   ```bash
-   pip install -r requirements.txt
-   ```
+1. **CORS Error**:
+   - Ensure your frontend URL is added to CORS origins in `server.js`
+   - Check that you're using the correct backend URL in `script.js`
 
-2. **Port already in use**: 
-   - Change the PORT environment variable
-   - Kill the process: `netstat -ano | findstr :5000` then `taskkill /PID <PID> /F`
+2. **API Key Issues**:
+   - Verify the API key is correctly set in `.env`
+   - Check that the key has sufficient credits
+   - Ensure no extra spaces in the key
 
-3. **File upload errors**: 
-   - Ensure file is under 10MB
-   - Check file format (JPG, PNG, WEBP, HEIC only)
-   - Verify Content-Type is set correctly
+3. **Connection Issues**:
+   - Verify backend is running and accessible
+   - Check firewall settings
+   - Ensure correct ports are used
 
-4. **API key errors**: 
+4. **Deployment Issues**:
    - Check environment variables are set correctly
-   - Verify API keys have sufficient credits/quota
-   - Ensure keys haven't expired
+   - Verify build logs for errors
+   - Ensure start command is correct
 
-5. **CORS errors**: 
-   - Verify requests are coming from `https://aifreeset.netlify.app`
-   - Check browser console for specific CORS messages
+### Logs and Debugging
 
-### Debug Mode
-The application runs in debug mode during local development (`debug=True`), providing detailed error messages in the console.
+- Backend logs: Check server console for error messages
+- Frontend logs: Open browser DevTools → Console
+- Network issues: Check Network tab in DevTools
 
-### Deployment Issues
-- **Heroku**: Check logs with `heroku logs --tail`
-- **Render**: Monitor logs in the Render dashboard
-- **Environment variables**: Ensure all required variables are set in production
+## 📄 License
 
-## 📞 Support
+MIT License - feel free to use this project for learning and development.
 
-For issues:
-1. Check console output for detailed error messages
-2. Verify API keys are valid and have credits
-3. Ensure file uploads meet requirements (size/format)
-4. Check that dependencies are properly installed
-5. Verify CORS settings if experiencing frontend connectivity issues
+## 🤝 Contributing
+
+Feel free to submit issues and enhancement requests!
 
 ---
 
-**🎉 Ready for Production!**
-
-Your AiFreeSet backend is now ready for deployment. The API will handle all image processing requests from your frontend at `https://aifreeset.netlify.app` with proper security, validation, and error handling.
+**© 2024 AI Free Set. Powered by OpenRouter & Qwen 3.**
